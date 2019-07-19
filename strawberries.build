@@ -67,6 +67,7 @@ WORKDIR /root
 #RUN unzip '*.zip' -d /root
 WORKDIR /root
 
+COPY keras-frcnn /root/
 COPY w251-project /root/
 
 EXPOSE 8888
