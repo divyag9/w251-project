@@ -1,0 +1,23 @@
+<annotation>
+    <folder>images</folder>
+    <filename>strawimage193.jpg</filename>
+    <size>
+        <width>724</width>
+        <height>483</height>
+        <depth>3</depth>
+    </size>
+    <segmented>0</segmented>
+    <object>
+        <name>ripe_strawberry</name>
+        <pose>Unspecified</pose>
+        <truncated>0</truncated>
+        <occluded>0</occluded>
+        <difficult>0</difficult>
+        <bndbox>
+            <xmin>408</xmin>
+            <ymin>129</ymin>
+            <xmax>662</xmax>
+            <ymax>435</ymax>
+        </bndbox>
+    </object>
+</annotation>
