@@ -1,5 +1,5 @@
 apt-get update
-wget https://developer.download.nvidia.com/compute/cuda/repos/ubuntu1604/x86_64/cuda-repo-ubuntu1604_10.0.130-1_amd64.deb
+wget http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1604/x86_64/cuda-repo-ubuntu1604_10.0.130-1_amd64.deb
 dpkg -i cuda-repo-ubuntu1604_10.0.130-1_amd64.deb
 # the cuda 10.0 key
 apt-key adv --fetch-keys http://developer.download.nvidia.com/compute/cuda/repos/ubuntu1604/x86_64/7fa2af80.pub
@@ -22,6 +22,10 @@ sudo add-apt-repository \
 
 apt-get update
 
+
+# Dima validated on 01/13/19 that this below is still required; sigh
+# apt-get install docker-ce=5:18.09.0~3-0~ubuntu-xenial
+# As of 2/24/19 this works now
 apt-get install -y docker-ce
 
 #mkdir -m 777 /data
@@ -46,8 +50,9 @@ curl -s -L https://nvidia.github.io/nvidia-docker/$distribution/nvidia-docker.li
 apt-get update
 
 apt-get install -y nvidia-docker2
-
 pkill -SIGHUP dockerd
+
+docker run --runtime=nvidia --rm nvidia/cuda nvidia-smi
 
 apt-get update
 
@@ -58,4 +63,6 @@ cd
 git clone https://github.com/kbardool/keras-frcnn.git
 git clone https://github.com/divyag9/w251-project.git
 
-docker build -t strawberry -f strawberries.build .
+docker build -t strawberry -f ~/root/w251-project/strawberries.build .
+
+docker run --rm --runtime=nvidia -it -p 8888:8888 -d strawberry

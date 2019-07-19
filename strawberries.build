@@ -70,6 +70,8 @@ WORKDIR /root
 COPY keras-frcnn /root/
 COPY w251-project /root/
 
+RUN pip install -r requirements.txt
+
 EXPOSE 8888
 
 CMD jupyter notebook  --no-browser --ip=0.0.0.0 --allow-root
