@@ -58,11 +58,11 @@ apt-get update
 
 apt-get install git
 
-cd
+cd /root
 
 git clone https://github.com/kbardool/keras-frcnn.git
 git clone https://github.com/divyag9/w251-project.git
 
-docker build -t strawberry -f ~/root/w251-project/strawberries.build .
+docker build -t strawberry -f w251-project/strawberries.build .
 
 docker run --rm --runtime=nvidia -it -p 8888:8888 -d strawberry
