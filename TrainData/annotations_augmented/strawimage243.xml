@@ -1,0 +1,24 @@
+<?xml version="1.0" ?>
+<annotation>
+	<folder>images_augmented</folder>
+	<filename>strawimage243.jpg</filename>
+	<size>
+		<width>540</width>
+		<height>720</height>
+		<depth>3</depth>
+	</size>
+	<segmented/>
+	<object>
+		<name>unripe_strawberry</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<occluded>0</occluded>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>102</xmin>
+			<ymin>143</ymin>
+			<xmax>179</xmax>
+			<ymax>201</ymax>
+		</bndbox>
+	</object>
+</annotation>

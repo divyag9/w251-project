@@ -1,0 +1,37 @@
+<?xml version="1.0" ?>
+<annotation>
+	<folder>images_augmented</folder>
+	<filename>strawimage268.jpg</filename>
+	<size>
+		<width>1273</width>
+		<height>1174</height>
+		<depth>3</depth>
+	</size>
+	<segmented/>
+	<object>
+		<name>ripe_strawberry</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<occluded>0</occluded>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>481</xmin>
+			<ymin>631</ymin>
+			<xmax>735</xmax>
+			<ymax>917</ymax>
+		</bndbox>
+	</object>
+	<object>
+		<name>ripe_strawberry</name>
+		<pose>Unspecified</pose>
+		<truncated>0</truncated>
+		<occluded>0</occluded>
+		<difficult>0</difficult>
+		<bndbox>
+			<xmin>258</xmin>
+			<ymin>348</ymin>
+			<xmax>626</xmax>
+			<ymax>721</ymax>
+		</bndbox>
+	</object>
+</annotation>

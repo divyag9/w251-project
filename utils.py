@@ -3,6 +3,8 @@ import imgaug.augmenters as iaa
 from imgaug.augmentables.bbs import BoundingBox, BoundingBoxesOnImage
 import cv2
 import xml.etree.ElementTree as ET
+from xml.dom.minidom import parseString
+import os
 
 RED = (255, 0, 0)
 GREEN = (0, 255, 0)
@@ -231,3 +233,35 @@ def get_training_annotations(image_path, img_boxes):
             b.y2_int,
             b.label
         ) for b in img_boxes.bounding_boxes]
+
+def write_annotation_xml(img_dir, annotation_dir, img_name, img_aug, img_boxes_aug):
+    root = ET.Element('annotation')
+    ET.SubElement(root, 'folder').text = img_dir
+    ET.SubElement(root, 'filename').text = img_name
+    
+    size = ET.SubElement(root, 'size')
+    ET.SubElement(size, 'width').text = str(img_aug.shape[0])
+    ET.SubElement(size, 'height').text = str(img_aug.shape[1])
+    ET.SubElement(size, 'depth').text = str(img_aug.shape[2])
+    
+    ET.SubElement(root, 'segmented').text = 0
+    
+    for b in img_boxes_aug.bounding_boxes:
+        obj = ET.SubElement(root, 'object')
+        ET.SubElement(obj, 'name').text = b.label
+        ET.SubElement(obj, 'pose').text = 'Unspecified'
+        ET.SubElement(obj, 'truncated').text = '0'
+        ET.SubElement(obj, 'occluded').text = '0'
+        ET.SubElement(obj, 'difficult').text = '0'
+        
+        bndbox = ET.SubElement(obj, 'bndbox')
+        ET.SubElement(bndbox, 'xmin').text = str(b.x1_int)
+        ET.SubElement(bndbox, 'ymin').text = str(b.y1_int)
+        ET.SubElement(bndbox, 'xmax').text = str(b.x2_int)
+        ET.SubElement(bndbox, 'ymax').text = str(b.y2_int)
+    
+    file = annotation_dir + img_name[:-4] + '.xml'
+#     if not os.path.exists(file):
+#         open(file, 'c').close()
+    with open(file, 'w+') as f:
+        f.write(parseString(ET.tostring(root, 'utf-8')).toprettyxml(indent='\t'))
