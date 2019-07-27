@@ -1,0 +1,8 @@
+FROM alpine
+
+RUN apk update
+RUN apk add python2
+RUN apk add py2-pip
+RUN pip install paho-mqtt
+
+
