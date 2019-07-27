@@ -41,3 +41,5 @@ Setup on jetson and cloud
 Note:
 
 1. I was not able to uplaod the model to github, but to run you need to have model_frcnn.hdf5 in the same directory where you are running the detector
+
+2. Also make sure there are no files in TestData/images directory. To show how the structure looks i just created a sample file in it otherwise github will not let me have the folder structure
