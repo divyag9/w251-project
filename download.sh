@@ -58,7 +58,7 @@ apt-get update
 
 apt-get install git
 
-cd /root
+cd /root/
 
 git clone https://github.com/kbardool/keras-frcnn.git
 git clone https://github.com/divyag9/w251-project.git

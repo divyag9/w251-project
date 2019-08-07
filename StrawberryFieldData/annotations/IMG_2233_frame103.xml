@@ -1,0 +1,36 @@
+<annotation>
+    <folder>images</folder>
+    <filename>IMG_2233_frame103.jpg</filename>
+    <size>
+        <width>1920</width>
+        <height>1080</height>
+        <depth>3</depth>
+    </size>
+    <segmented>0</segmented>
+    <object>
+        <name>unripe_strawberry</name>
+        <pose>Unspecified</pose>
+        <truncated>0</truncated>
+        <occluded>0</occluded>
+        <difficult>0</difficult>
+        <bndbox>
+            <xmin>540</xmin>
+            <ymin>991</ymin>
+            <xmax>604</xmax>
+            <ymax>1053</ymax>
+        </bndbox>
+    </object>
+    <object>
+        <name>unripe_strawberry</name>
+        <pose>Unspecified</pose>
+        <truncated>0</truncated>
+        <occluded>0</occluded>
+        <difficult>0</difficult>
+        <bndbox>
+            <xmin>606</xmin>
+            <ymin>871</ymin>
+            <xmax>695</xmax>
+            <ymax>945</ymax>
+        </bndbox>
+    </object>
+</annotation>
