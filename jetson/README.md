@@ -12,7 +12,7 @@ Setup on jetson and cloud
    
 3. create image detector container using Dockerfile.testfrcnn
 
-   sudo docker run --name detector --device=/dev/video1:/dev/video1 -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix -v ~/251:/251 --network project --rm -ti projecttestfrcnn sh
+   sudo docker run --name detector --device=/dev/video1:/dev/video1 -e DISPLAY=$DISPLAY -v /tmp/.X11-unix:/tmp/.X11-unix -v ~/251:/251 --network project --rm --privileged -ti projecttestfrcnn sh
    
    once inside bash run - python3 detector.py
    
