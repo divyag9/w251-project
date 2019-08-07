@@ -33,7 +33,7 @@ remote_broker_address="169.45.10.136"
 #create new instance of client
 remote_client = mqtt.Client("strawpubremote")
 #authentication
-remote_client.username_pw_set(username="root",password="KhQBku6s")
+remote_client.username_pw_set(username="root",password="")
 #connect to broker
 remote_client.connect(remote_broker_address,1883,1000)
 
