@@ -4,13 +4,13 @@ import ibm_boto3
 import time
 
 cos_credentials={
-  "apikey": "elN20BTDza8vvIUTFmGBAXE0XE5X_4mgI-OBgGQB3MrV",
-  "endpoints": "https://control.cloud-object-storage.cloud.ibm.com/v2/endpoints",
-  "iam_apikey_description": "Auto-generated for key 4095d86e-6fff-4517-825c-3814efe3e35f",
-  "iam_apikey_name": "Service credentials-1",
-  "iam_role_crn": "crn:v1:bluemix:public:iam::::serviceRole:Writer",
-  "iam_serviceid_crn": "crn:v1:bluemix:public:iam-identity::a/aab07460f21744099baab02e85a3685a::serviceid:ServiceId-0ca255c9-b402-4795-94ca-c9efef3b0924",
-  "resource_instance_id": "crn:v1:bluemix:public:cloud-object-storage:global:a/aab07460f21744099baab02e85a3685a:6c62fd61-1c0f-44fa-bd15-3ffe9cf96b29::"
+  "apikey": "",
+  "endpoints": "",
+  "iam_apikey_description": "",
+  "iam_apikey_name": "",
+  "iam_role_crn": "",
+  "iam_serviceid_crn": "",
+  "resource_instance_id": ""
 }
 
 auth_endpoint = 'https://iam.bluemix.net/oidc/token'
