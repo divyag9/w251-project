@@ -8,7 +8,7 @@ RUN apt install -y python3-opencv python3-pip python3-scipy vim-tiny
 
 RUN pip3 install h5py
 RUN pip3 install numpy
-RUN pip3 install Keras==2.0.3
+RUN pip3 install Keras==2.2.0
 RUN pip3 install paho-mqtt
 RUN pip3 install boto3
 #RUN pip3 install sklearn
