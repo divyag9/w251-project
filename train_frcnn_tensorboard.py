@@ -1,276 +1,312 @@
-<!DOCTYPE HTML>
-<html>
+from __future__ import division
+import random
+import pprint
+import sys
+import time
+import numpy as np
+from optparse import OptionParser
+import pickle
 
-<head>
-    <meta charset="utf-8">
+from keras import backend as K
+from keras.optimizers import Adam, SGD, RMSprop
+from keras.layers import Input
+from keras.models import Model
+from keras_frcnn import config, data_generators
+from keras_frcnn import losses as losses
+import keras_frcnn.roi_helpers as roi_helpers
+from keras.utils import generic_utils
+from keras.callbacks import TensorBoard
 
-    <title>train_frcnn_tensorboard.py (editing)</title>
-    <link id="favicon" rel="shortcut icon" type="image/x-icon" href="/static/base/images/favicon-file.ico?v=e2776a7f45692c839d6eea7d7ff6f3b2">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <link rel="stylesheet" href="/static/components/jquery-ui/themes/smoothness/jquery-ui.min.css?v=3c2a865c832a1322285c55c6ed99abb2" type="text/css" />
-    <link rel="stylesheet" href="/static/components/jquery-typeahead/dist/jquery.typeahead.min.css?v=7afb461de36accb1aa133a1710f5bc56" type="text/css" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+sys.setrecursionlimit(40000)
+
+parser = OptionParser()
+
+parser.add_option("-p", "--path", dest="train_path", help="Path to training data.")
+parser.add_option("-o", "--parser", dest="parser", help="Parser to use. One of simple or pascal_voc", default="pascal_voc")
+parser.add_option("-n", "--num_rois", type="int", dest="num_rois", help="Number of RoIs to process at once.", default=32)
+parser.add_option("--network", dest="network", help="Base network to use. Supports vgg or resnet50.", default='resnet50')
+parser.add_option("--hf", dest="horizontal_flips", help="Augment with horizontal flips in training. (Default=false).", action="store_true", default=False)
+parser.add_option("--vf", dest="vertical_flips", help="Augment with vertical flips in training. (Default=false).", action="store_true", default=False)
+parser.add_option("--rot", "--rot_90", dest="rot_90", help="Augment with 90 degree rotations in training. (Default=false).",
+              action="store_true", default=False)
+parser.add_option("--num_epochs", type="int", dest="num_epochs", help="Number of epochs.", default=2000)
+parser.add_option("--config_filename", dest="config_filename", help=
+            "Location to store all the metadata related to the training (to be used when testing).",
+            default="config.pickle")
+parser.add_option("--output_weight_path", dest="output_weight_path", help="Output path for weights.", default='./model_frcnn.hdf5')
+parser.add_option("--input_weight_path", dest="input_weight_path", help="Input path for weights. If not specified, will try to load default weights provided by keras.")
+parser.add_option("--ce", dest="current_epoch", help="Set current epoch parameter for tensorboard visual. Must pull from .txt")
+
+(options, args) = parser.parse_args()
+if not options.train_path:   # if filename is not given
+    parser.error('Error: path to training data must be specified. Pass --path to command line')
+
+if options.current_epoch:
+    epochNum_file = options.current_epoch
     
+    with open(epochNum_file, 'rb') as f:
+        epochNum_number = pickle.load(f)
+else:
+    epochNum_number = 1
     
-<link rel="stylesheet" href="/static/components/codemirror/lib/codemirror.css?v=288352df06a67ee35003b0981da414ac">
-<link rel="stylesheet" href="/static/components/codemirror/addon/dialog/dialog.css?v=c89dce10b44d2882a024e7befc2b63f5">
+if options.parser == 'pascal_voc':
+    from keras_frcnn.pascal_voc_parser import get_data
+elif options.parser == 'simple':
+    from keras_frcnn.simple_parser import get_data
+else:
+    raise ValueError("Command line option parser must be one of 'pascal_voc' or 'simple'")
 
-    <link rel="stylesheet" href="/static/style/style.min.css?v=e91a43337d7c294cc9fab2938fa723b3" type="text/css"/>
-    
+# pass the settings from the command line, and persist them in the config object
+C = config.Config()
 
-    <link rel="stylesheet" href="/custom/custom.css" type="text/css" />
-    <script src="/static/components/es6-promise/promise.min.js?v=f004a16cb856e0ff11781d01ec5ca8fe" type="text/javascript" charset="utf-8"></script>
-    <script src="/static/components/react/react.production.min.js?v=34f96ffc962a7deecc83037ccb582b58" type="text/javascript"></script>
-    <script src="/static/components/react/react-dom.production.min.js" type="text/javascript"></script>
-    <script src="/static/components/create-react-class/index.js?v=94feb9971ce6d26211729abc43f96cd2" type="text/javascript"></script>
-    <script src="/static/components/requirejs/require.js?v=951f856e81496aaeec2e71a1c2c0d51f" type="text/javascript" charset="utf-8"></script>
-    <script>
-      require.config({
-          
-          urlArgs: "v=20190730071548",
-          
-          baseUrl: '/static/',
-          paths: {
-            'auth/js/main': 'auth/js/main.min',
-            custom : '/custom',
-            nbextensions : '/nbextensions',
-            kernelspecs : '/kernelspecs',
-            underscore : 'components/underscore/underscore-min',
-            backbone : 'components/backbone/backbone-min',
-            jed: 'components/jed/jed',
-            jquery: 'components/jquery/jquery.min',
-            json: 'components/requirejs-plugins/src/json',
-            text: 'components/requirejs-text/text',
-            bootstrap: 'components/bootstrap/dist/js/bootstrap.min',
-            bootstraptour: 'components/bootstrap-tour/build/js/bootstrap-tour.min',
-            'jquery-ui': 'components/jquery-ui/jquery-ui.min',
-            moment: 'components/moment/min/moment-with-locales',
-            codemirror: 'components/codemirror',
-            termjs: 'components/xterm.js/xterm',
-            typeahead: 'components/jquery-typeahead/dist/jquery.typeahead.min',
-          },
-          map: { // for backward compatibility
-              "*": {
-                  "jqueryui": "jquery-ui",
-              }
-          },
-          shim: {
-            typeahead: {
-              deps: ["jquery"],
-              exports: "typeahead"
-            },
-            underscore: {
-              exports: '_'
-            },
-            backbone: {
-              deps: ["underscore", "jquery"],
-              exports: "Backbone"
-            },
-            bootstrap: {
-              deps: ["jquery"],
-              exports: "bootstrap"
-            },
-            bootstraptour: {
-              deps: ["bootstrap"],
-              exports: "Tour"
-            },
-            "jquery-ui": {
-              deps: ["jquery"],
-              exports: "$"
-            }
-          },
-          waitSeconds: 30,
-      });
+C.use_horizontal_flips = bool(options.horizontal_flips)
+C.use_vertical_flips = bool(options.vertical_flips)
+C.rot_90 = bool(options.rot_90)
 
-      require.config({
-          map: {
-              '*':{
-                'contents': 'services/contents',
-              }
-          }
-      });
+C.model_path = options.output_weight_path
+C.num_rois = int(options.num_rois)
 
-      // error-catching custom.js shim.
-      define("custom", function (require, exports, module) {
-          try {
-              var custom = require('custom/custom');
-              console.debug('loaded custom.js');
-              return custom;
-          } catch (e) {
-              console.error("error loading custom.js", e);
-              return {};
-          }
-      })
-
-    document.nbjs_translations = {"domain": "nbjs", "locale_data": {"nbjs": {"": {"domain": "nbjs"}}}};
-    document.documentElement.lang = navigator.language.toLowerCase();
-    </script>
-
-    
-    
-
-</head>
-
-<body class="edit_app "
- 
-data-base-url="/"
-data-file-path="train_frcnn_tensorboard.py"
-
-  
-    data-jupyter-api-token="33f9cbe9eec6deb44192f388b0ba22bb2de5e4a082deae17"
-  
- 
-
-dir="ltr">
-
-<noscript>
-    <div id='noscript'>
-      Jupyter Notebook requires JavaScript.<br>
-      Please enable it to proceed. 
-  </div>
-</noscript>
-
-<div id="header" role="navigation" aria-label="Top Menu">
-  <div id="header-container" class="container">
-  <div id="ipython_notebook" class="nav navbar-brand"><a href="/tree?token=33f9cbe9eec6deb44192f388b0ba22bb2de5e4a082deae17" title='dashboard'>
-      <img src='/static/base/images/logo.png?v=641991992878ee24c6f3826e81054a0f' alt='Jupyter Notebook'/>
-  </a></div>
-
-  
-
-<span id="save_widget" class="pull-left save_widget">
-    <span class="filename"></span>
-    <span class="last_modified"></span>
-</span>
+if options.network == 'vgg':
+    C.network = 'vgg'
+    from keras_frcnn import vgg as nn
+elif options.network == 'resnet50':
+    from keras_frcnn import resnet as nn
+    C.network = 'resnet50'
+else:
+    print('Not a valid model')
+    raise ValueError
 
 
-  
+# check if weight path was passed via command line
+if options.input_weight_path:
+    C.base_net_weights = options.input_weight_path
+else:
+    # set the path to weights based on backend and model
+    C.base_net_weights = nn.get_weight_path()
 
-  
-  
-  
-  
+all_imgs, classes_count, class_mapping = get_data(options.train_path)
 
-    <span id="login_widget">
-      
-        <button id="logout" class="btn btn-sm navbar-btn">Logout</button>
-      
-    </span>
+if 'bg' not in classes_count:
+    classes_count['bg'] = 0
+    class_mapping['bg'] = len(class_mapping)
 
-  
+C.class_mapping = class_mapping
 
-  
-  
-  </div>
-  <div class="header-bar"></div>
+inv_map = {v: k for k, v in class_mapping.items()}
 
-  
+print('Training images per class:')
+pprint.pprint(classes_count)
+print('Num classes (including bg) = {}'.format(len(classes_count)))
 
-<div id="menubar-container" class="container">
-  <div id="menubar">
-    <div id="menus" class="navbar navbar-default" role="navigation">
-      <div class="container-fluid">
-          <p  class="navbar-text indicator_area">
-          <span id="current-mode" >current mode</span>
-          </p>
-        <button type="button" class="btn btn-default navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
-          <i class="fa fa-bars"></i>
-          <span class="navbar-text">Menu</span>
-        </button>
-        <ul class="nav navbar-nav navbar-right">
-          <li id="notification_area"></li>
-        </ul>
-        <div class="navbar-collapse collapse">
-          <ul class="nav navbar-nav">
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">File</a>
-              <ul id="file-menu" class="dropdown-menu">
-                <li id="new-file"><a href="#">New</a></li>
-                <li id="save-file"><a href="#">Save</a></li>
-                <li id="rename-file"><a href="#">Rename</a></li>
-                <li id="download-file"><a href="#">Download</a></li>
-              </ul>
-            </li>
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Edit</a>
-              <ul id="edit-menu" class="dropdown-menu">
-                <li id="menu-find"><a href="#">Find</a></li>
-                <li id="menu-replace"><a href="#">Find &amp; Replace</a></li>
-                <li class="divider"></li>
-                <li class="dropdown-header">Key Map</li>
-                <li id="menu-keymap-default"><a href="#">Default<i class="fa"></i></a></li>
-                <li id="menu-keymap-sublime"><a href="#">Sublime Text<i class="fa"></i></a></li>
-                <li id="menu-keymap-vim"><a href="#">Vim<i class="fa"></i></a></li>
-                <li id="menu-keymap-emacs"><a href="#">emacs<i class="fa"></i></a></li>
-              </ul>
-            </li>
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">View</a>
-              <ul id="view-menu" class="dropdown-menu">
-              <li id="toggle_header" title="Show/Hide the logo and notebook title (above menu bar)">
-              <a href="#">Toggle Header</a></li>
-              <li id="menu-line-numbers"><a href="#">Toggle Line Numbers</a></li>
-              </ul>
-            </li>
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Language</a>
-              <ul id="mode-menu" class="dropdown-menu">
-              </ul>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
+config_output_filename = options.config_filename
 
-<div class="lower-header-bar"></div>
+with open(config_output_filename, 'wb') as config_f:
+    pickle.dump(C,config_f)
+    print('Config has been written to {}, and can be loaded when testing to ensure correct results'.format(config_output_filename))
+
+random.shuffle(all_imgs)
+
+num_imgs = len(all_imgs)
+
+train_imgs = [s for s in all_imgs if s['imageset'] == 'trainval']
+val_imgs = [s for s in all_imgs if s['imageset'] == 'test']
+
+print('Num train samples {}'.format(len(train_imgs)))
+print('Num val samples {}'.format(len(val_imgs)))
 
 
-</div>
+data_gen_train = data_generators.get_anchor_gt(train_imgs, classes_count, C, nn.get_img_output_length, K.image_dim_ordering(), mode='train')
+data_gen_val = data_generators.get_anchor_gt(val_imgs, classes_count, C, nn.get_img_output_length,K.image_dim_ordering(), mode='val')
 
-<div id="site">
+if K.image_dim_ordering() == 'th':
+    input_shape_img = (3, None, None)
+else:
+    input_shape_img = (None, None, 3)
 
+img_input = Input(shape=input_shape_img)
+roi_input = Input(shape=(None, 4))
 
-<div id="texteditor-backdrop">
-<div id="texteditor-container" class="container"></div>
-</div>
+# define the base network (resnet here, can be VGG, Inception, etc)
+shared_layers = nn.nn_base(img_input, trainable=True)
 
+# define the RPN, built on the base layers
+num_anchors = len(C.anchor_box_scales) * len(C.anchor_box_ratios)
+rpn = nn.rpn(shared_layers, num_anchors)
 
-</div>
+classifier = nn.classifier(shared_layers, roi_input, C.num_rois, nb_classes=len(classes_count), trainable=True)
 
+model_rpn = Model(img_input, rpn[:2])
+model_classifier = Model([img_input, roi_input], classifier)
 
+# this is a model that holds both the RPN and the classifier, used to load/save weights for the models
+model_all = Model([img_input, roi_input], rpn[:2] + classifier)
 
+try:
+    print('loading weights from {}'.format(C.base_net_weights))
+    model_rpn.load_weights(C.base_net_weights, by_name=True)
+    model_classifier.load_weights(C.base_net_weights, by_name=True)
+except:
+    print('Could not load pretrained model weights. Weights can be found in the keras application folder \
+        https://github.com/fchollet/keras/tree/master/keras/applications')
 
+optimizer = Adam(lr=1e-5)
+optimizer_classifier = Adam(lr=1e-5)
+model_rpn.compile(optimizer=optimizer, loss=[losses.rpn_loss_cls(num_anchors), losses.rpn_loss_regr(num_anchors)])
+model_classifier.compile(optimizer=optimizer_classifier, loss=[losses.class_loss_cls, losses.class_loss_regr(len(classes_count)-1)], metrics={'dense_class_{}'.format(len(classes_count)): 'accuracy'})
+model_all.compile(optimizer='sgd', loss='mae')
 
+epoch_length = 1000
+num_epochs = int(options.num_epochs)
+iter_num = 0
 
-    
+losses = np.zeros((epoch_length, 5))
+rpn_accuracy_rpn_monitor = []
+rpn_accuracy_for_epoch = []
+start_time = time.time()
 
+best_loss = np.Inf
 
-<script src="/static/edit/js/main.min.js?v=e554676a4f8e00669f107d9742f94e8d" type="text/javascript" charset="utf-8"></script>
+class_mapping_inv = {v: k for k, v in class_mapping.items()}
 
+# David
+tensorboard_rpn = TensorBoard(log_dir='./logs_rpn')
+tensorboard_rpn.set_model(model_rpn)
+tensorboard_clf = TensorBoard(log_dir='./logs_clf')
+tensorboard_clf.set_model(model_classifier)
+log_freq = 100
+print("Writing to TensorBoard every {} steps".format(log_freq))
 
-<script type='text/javascript'>
-  function _remove_token_from_url() {
-    if (window.location.search.length <= 1) {
-      return;
-    }
-    var search_parameters = window.location.search.slice(1).split('&');
-    for (var i = 0; i < search_parameters.length; i++) {
-      if (search_parameters[i].split('=')[0] === 'token') {
-        // remote token from search parameters
-        search_parameters.splice(i, 1);
-        var new_search = '';
-        if (search_parameters.length) {
-          new_search = '?' + search_parameters.join('&');
-        }
-        var new_url = window.location.origin + 
-                      window.location.pathname + 
-                      new_search + 
-                      window.location.hash;
-        window.history.replaceState({}, "", new_url);
-        return;
-      }
-    }
-  }
-  _remove_token_from_url();
-</script>
-</body>
+print('Starting training')
 
-</html>
+vis = True
+
+for epoch_num in range(num_epochs):
+
+    progbar = generic_utils.Progbar(epoch_length)
+    print('Epoch {}/{}'.format(epoch_num + 1, num_epochs))
+
+    while True:
+        try:
+
+            if len(rpn_accuracy_rpn_monitor) == epoch_length and C.verbose:
+                mean_overlapping_bboxes = float(sum(rpn_accuracy_rpn_monitor))/len(rpn_accuracy_rpn_monitor)
+                rpn_accuracy_rpn_monitor = []
+                print('Average number of overlapping bounding boxes from RPN = {} for {} previous iterations'.format(mean_overlapping_bboxes, epoch_length))
+                if mean_overlapping_bboxes == 0:
+                    print('RPN is not producing bounding boxes that overlap the ground truth boxes. Check RPN settings or keep training.')
+
+            X, Y, img_data = next(data_gen_train)
+
+            loss_rpn = model_rpn.train_on_batch(X, Y)
+
+            P_rpn = model_rpn.predict_on_batch(X)
+
+            R = roi_helpers.rpn_to_roi(P_rpn[0], P_rpn[1], C, K.image_dim_ordering(), use_regr=True, overlap_thresh=0.7, max_boxes=300)
+            # note: calc_iou converts from (x1,y1,x2,y2) to (x,y,w,h) format
+            X2, Y1, Y2, IouS = roi_helpers.calc_iou(R, img_data, C, class_mapping)
+
+            if X2 is None:
+                rpn_accuracy_rpn_monitor.append(0)
+                rpn_accuracy_for_epoch.append(0)
+                continue
+
+            neg_samples = np.where(Y1[0, :, -1] == 1)
+            pos_samples = np.where(Y1[0, :, -1] == 0)
+
+            if len(neg_samples) > 0:
+                neg_samples = neg_samples[0]
+            else:
+                neg_samples = []
+
+            if len(pos_samples) > 0:
+                pos_samples = pos_samples[0]
+            else:
+                pos_samples = []
+            
+            rpn_accuracy_rpn_monitor.append(len(pos_samples))
+            rpn_accuracy_for_epoch.append((len(pos_samples)))
+
+            if C.num_rois > 1:
+                if len(pos_samples) < C.num_rois//2:
+                    selected_pos_samples = pos_samples.tolist()
+                else:
+                    selected_pos_samples = np.random.choice(pos_samples, C.num_rois//2, replace=False).tolist()
+                try:
+                    selected_neg_samples = np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples),
+                                                            replace=False).tolist()
+                except:
+                    selected_neg_samples = np.random.choice(neg_samples, C.num_rois - len(selected_pos_samples),
+                                                            replace=True).tolist()
+
+                sel_samples = selected_pos_samples + selected_neg_samples
+            else:
+                # in the extreme case where num_rois = 1, we pick a random pos or neg sample
+                selected_pos_samples = pos_samples.tolist()
+                selected_neg_samples = neg_samples.tolist()
+                if np.random.randint(0, 2):
+                    sel_samples = random.choice(neg_samples)
+                else:
+                    sel_samples = random.choice(pos_samples)
+
+            loss_class = model_classifier.train_on_batch(
+                [X, X2[:, sel_samples, :]], [Y1[:, sel_samples, :], Y2[:, sel_samples, :]])
+            
+            # David
+            if iter_num % log_freq == 0:
+                step = iter_num + (epoch_num)*1000+epochNum_number*1000
+                tensorboard_rpn.on_epoch_end(step, {k:v for k,v in zip(model_rpn.metrics_names, loss_rpn)})
+                tensorboard_clf.on_epoch_end(step, {k:v for k,v in zip(model_classifier.metrics_names, loss_rpn)})
+                print("On step {} of epoch {}.  Writing these losses to Tensorboard...".format(step, epoch_num))
+                print("RPN Losses: ", {k:v for k,v in zip(model_rpn.metrics_names, loss_rpn)})
+                print("Classifier Losses: ", {k:v for k,v in zip(model_classifier.metrics_names, loss_rpn)})
+
+            losses[iter_num, 0] = loss_rpn[1]
+            losses[iter_num, 1] = loss_rpn[2]
+
+            losses[iter_num, 2] = loss_class[1]
+            losses[iter_num, 3] = loss_class[2]
+            losses[iter_num, 4] = loss_class[3]
+
+            progbar.update(iter_num+1, [('rpn_cls', losses[iter_num, 0]), ('rpn_regr', losses[iter_num, 1]),
+                                      ('detector_cls', losses[iter_num, 2]), ('detector_regr', losses[iter_num, 3])])
+            
+            iter_num += 1
+
+            if iter_num == epoch_length:
+                loss_rpn_cls = np.mean(losses[:, 0])
+                loss_rpn_regr = np.mean(losses[:, 1])
+                loss_class_cls = np.mean(losses[:, 2])
+                loss_class_regr = np.mean(losses[:, 3])
+                class_acc = np.mean(losses[:, 4])
+
+                mean_overlapping_bboxes = float(sum(rpn_accuracy_for_epoch)) / len(rpn_accuracy_for_epoch)
+                rpn_accuracy_for_epoch = []
+
+                if C.verbose:
+                    print('Mean number of bounding boxes from RPN overlapping ground truth boxes: {}'.format(mean_overlapping_bboxes))
+                    print('Classifier accuracy for bounding boxes from RPN: {}'.format(class_acc))
+                    print('Loss RPN classifier: {}'.format(loss_rpn_cls))
+                    print('Loss RPN regression: {}'.format(loss_rpn_regr))
+                    print('Loss Detector classifier: {}'.format(loss_class_cls))
+                    print('Loss Detector regression: {}'.format(loss_class_regr))
+                    print('Elapsed time: {}'.format(time.time() - start_time))
+
+                curr_loss = loss_rpn_cls + loss_rpn_regr + loss_class_cls + loss_class_regr
+                iter_num = 0
+                start_time = time.time()
+
+                if curr_loss < best_loss:
+                    if C.verbose:
+                        print('Total loss decreased from {} to {}, saving weights'.format(best_loss,curr_loss))
+                    best_loss = curr_loss
+                    model_all.save_weights(C.model_path)
+
+                break
+
+        except Exception as e:
+            print('Exception: {}'.format(e))
+            continue
+
+tensorboard_rpn.on_train_end(None)
+tensorboard_clf.on_train_end(None)
+print('Training complete, exiting.')

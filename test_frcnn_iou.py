@@ -1,276 +1,282 @@
-<!DOCTYPE HTML>
-<html>
+from __future__ import division
+import os
+import cv2
+import numpy as np
+import sys
+import pickle
+from optparse import OptionParser
+import time
+from keras_frcnn import config
+from keras import backend as K
+from keras.layers import Input
+from keras.models import Model
+from keras_frcnn import roi_helpers
 
-<head>
-    <meta charset="utf-8">
+sys.setrecursionlimit(40000)
 
-    <title>test_frcnn_iou.py (editing)</title>
-    <link id="favicon" rel="shortcut icon" type="image/x-icon" href="/static/base/images/favicon-file.ico?v=e2776a7f45692c839d6eea7d7ff6f3b2">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-    <link rel="stylesheet" href="/static/components/jquery-ui/themes/smoothness/jquery-ui.min.css?v=3c2a865c832a1322285c55c6ed99abb2" type="text/css" />
-    <link rel="stylesheet" href="/static/components/jquery-typeahead/dist/jquery.typeahead.min.css?v=7afb461de36accb1aa133a1710f5bc56" type="text/css" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+parser = OptionParser()
+
+parser.add_option("-p", "--path", dest="test_path", help="Path to test data.")
+parser.add_option("-n", "--num_rois", type="int", dest="num_rois",
+                help="Number of ROIs per iteration. Higher means more memory use.", default=32)
+parser.add_option("--config_filename", dest="config_filename", help=
+                "Location to read the metadata related to the training (generated when training).",
+                default="config.pickle")
+parser.add_option("--network", dest="network", help="Base network to use. Supports vgg or resnet50.", default='resnet50')
+parser.add_option("--input_weight_path", dest="input_weight_path", help="Input path for weights. If not specified, will try to load default weights provided by keras.")
+parser.add_option("--output_path", dest="output_path", help="Output path for images.", default='results_imgs')
+
+(options, args) = parser.parse_args()
+
+if not options.test_path:   # if filename is not given
+    parser.error('Error: path to test data must be specified. Pass --path to command line')
+
+
+config_output_filename = options.config_filename
+
+with open(config_output_filename, 'rb') as f_in:
+    C = pickle.load(f_in)
+
+if C.network == 'resnet50':
+    import keras_frcnn.resnet as nn
+elif C.network == 'vgg':
+    import keras_frcnn.vgg as nn
+
+# turn off any data augmentation at test time
+C.use_horizontal_flips = False
+C.use_vertical_flips = False
+C.rot_90 = False
+
+img_path = options.test_path
+
+def format_img_size(img, C):
+    """ formats the image size based on config """
+    img_min_side = float(C.im_size)
+    (height,width,_) = img.shape
+        
+    if width <= height:
+        ratio = img_min_side/width
+        new_height = int(ratio * height)
+        new_width = int(img_min_side)
+    else:
+        ratio = img_min_side/height
+        new_width = int(ratio * width)
+        new_height = int(img_min_side)
+    img = cv2.resize(img, (new_width, new_height), interpolation=cv2.INTER_CUBIC)
+    return img, ratio    
+
+def format_img_channels(img, C):
+    """ formats the image channels based on config """
+    img = img[:, :, (2, 1, 0)]
+    img = img.astype(np.float32)
+    img[:, :, 0] -= C.img_channel_mean[0]
+    img[:, :, 1] -= C.img_channel_mean[1]
+    img[:, :, 2] -= C.img_channel_mean[2]
+    img /= C.img_scaling_factor
+    img = np.transpose(img, (2, 0, 1))
+    img = np.expand_dims(img, axis=0)
+    return img
+
+def format_img(img, C):
+    """ formats an image for model prediction based on config """
+    img, ratio = format_img_size(img, C)
+    img = format_img_channels(img, C)
+    return img, ratio
+
+# Method to transform the coordinates of the bounding box to its original size
+def get_real_coordinates(ratio, x1, y1, x2, y2):
+
+    real_x1 = int(round(x1 // ratio))
+    real_y1 = int(round(y1 // ratio))
+    real_x2 = int(round(x2 // ratio))
+    real_y2 = int(round(y2 // ratio))
+
+    return (real_x1, real_y1, real_x2 ,real_y2)
+
+class_mapping = C.class_mapping
+
+if 'bg' not in class_mapping:
+    class_mapping['bg'] = len(class_mapping)
+
+class_mapping = {v: k for k, v in class_mapping.items()}
+print(class_mapping)
+class_to_color = {class_mapping[v]: np.random.randint(0, 255, 3) for v in class_mapping}
+C.num_rois = int(options.num_rois)
+
+if C.network == 'resnet50':
+    num_features = 1024
+elif C.network == 'vgg':
+    num_features = 512
+
+if K.image_dim_ordering() == 'th':
+    input_shape_img = (3, None, None)
+    input_shape_features = (num_features, None, None)
+else:
+    input_shape_img = (None, None, 3)
+    input_shape_features = (None, None, num_features)
+
+
+img_input = Input(shape=input_shape_img)
+roi_input = Input(shape=(C.num_rois, 4))
+feature_map_input = Input(shape=input_shape_features)
+
+# define the base network (resnet here, can be VGG, Inception, etc)
+shared_layers = nn.nn_base(img_input, trainable=True)
+
+# define the RPN, built on the base layers
+num_anchors = len(C.anchor_box_scales) * len(C.anchor_box_ratios)
+rpn_layers = nn.rpn(shared_layers, num_anchors)
+
+classifier = nn.classifier(feature_map_input, roi_input, C.num_rois, nb_classes=len(class_mapping), trainable=True)
+
+model_rpn = Model(img_input, rpn_layers)
+model_classifier_only = Model([feature_map_input, roi_input], classifier)
+
+model_classifier = Model([feature_map_input, roi_input], classifier)
+
+if options.input_weight_path:
+    load_weights_pickle = options.input_weight_path
     
-    
-<link rel="stylesheet" href="/static/components/codemirror/lib/codemirror.css?v=288352df06a67ee35003b0981da414ac">
-<link rel="stylesheet" href="/static/components/codemirror/addon/dialog/dialog.css?v=c89dce10b44d2882a024e7befc2b63f5">
+    with open(load_weights_pickle, 'rb') as f:
+        load_weights = pickle.load(f)
+else:
+    load_weights = C.model_path
 
-    <link rel="stylesheet" href="/static/style/style.min.css?v=e91a43337d7c294cc9fab2938fa723b3" type="text/css"/>
-    
+print('Loading weights from {}'.format(load_weights))
+model_rpn.load_weights(load_weights, by_name=True)
+model_classifier.load_weights(load_weights, by_name=True)
 
-    <link rel="stylesheet" href="/custom/custom.css" type="text/css" />
-    <script src="/static/components/es6-promise/promise.min.js?v=f004a16cb856e0ff11781d01ec5ca8fe" type="text/javascript" charset="utf-8"></script>
-    <script src="/static/components/react/react.production.min.js?v=34f96ffc962a7deecc83037ccb582b58" type="text/javascript"></script>
-    <script src="/static/components/react/react-dom.production.min.js" type="text/javascript"></script>
-    <script src="/static/components/create-react-class/index.js?v=94feb9971ce6d26211729abc43f96cd2" type="text/javascript"></script>
-    <script src="/static/components/requirejs/require.js?v=951f856e81496aaeec2e71a1c2c0d51f" type="text/javascript" charset="utf-8"></script>
-    <script>
-      require.config({
-          
-          urlArgs: "v=20190730071548",
-          
-          baseUrl: '/static/',
-          paths: {
-            'auth/js/main': 'auth/js/main.min',
-            custom : '/custom',
-            nbextensions : '/nbextensions',
-            kernelspecs : '/kernelspecs',
-            underscore : 'components/underscore/underscore-min',
-            backbone : 'components/backbone/backbone-min',
-            jed: 'components/jed/jed',
-            jquery: 'components/jquery/jquery.min',
-            json: 'components/requirejs-plugins/src/json',
-            text: 'components/requirejs-text/text',
-            bootstrap: 'components/bootstrap/dist/js/bootstrap.min',
-            bootstraptour: 'components/bootstrap-tour/build/js/bootstrap-tour.min',
-            'jquery-ui': 'components/jquery-ui/jquery-ui.min',
-            moment: 'components/moment/min/moment-with-locales',
-            codemirror: 'components/codemirror',
-            termjs: 'components/xterm.js/xterm',
-            typeahead: 'components/jquery-typeahead/dist/jquery.typeahead.min',
-          },
-          map: { // for backward compatibility
-              "*": {
-                  "jqueryui": "jquery-ui",
-              }
-          },
-          shim: {
-            typeahead: {
-              deps: ["jquery"],
-              exports: "typeahead"
-            },
-            underscore: {
-              exports: '_'
-            },
-            backbone: {
-              deps: ["underscore", "jquery"],
-              exports: "Backbone"
-            },
-            bootstrap: {
-              deps: ["jquery"],
-              exports: "bootstrap"
-            },
-            bootstraptour: {
-              deps: ["bootstrap"],
-              exports: "Tour"
-            },
-            "jquery-ui": {
-              deps: ["jquery"],
-              exports: "$"
-            }
-          },
-          waitSeconds: 30,
-      });
+model_rpn.compile(optimizer='sgd', loss='mse')
+model_classifier.compile(optimizer='sgd', loss='mse')
 
-      require.config({
-          map: {
-              '*':{
-                'contents': 'services/contents',
-              }
-          }
-      });
+all_imgs = []
 
-      // error-catching custom.js shim.
-      define("custom", function (require, exports, module) {
-          try {
-              var custom = require('custom/custom');
-              console.debug('loaded custom.js');
-              return custom;
-          } catch (e) {
-              console.error("error loading custom.js", e);
-              return {};
-          }
-      })
+classes = {}
 
-    document.nbjs_translations = {"domain": "nbjs", "locale_data": {"nbjs": {"": {"domain": "nbjs"}}}};
-    document.documentElement.lang = navigator.language.toLowerCase();
-    </script>
+bbox_threshold = 0.8
 
-    
-    
+visualise = True
 
-</head>
+file_path = options.output_path
 
-<body class="edit_app "
- 
-data-base-url="/"
-data-file-path="test_frcnn_iou.py"
+# David
+pred_boxes = {}
+times = {}
+FONT_SCALE = .5
 
-  
-    data-jupyter-api-token="33f9cbe9eec6deb44192f388b0ba22bb2de5e4a082deae17"
-  
- 
+for idx, img_name in enumerate(sorted(os.listdir(img_path))):
+    if not img_name.lower().endswith(('.bmp', '.jpeg', '.jpg', '.png', '.tif', '.tiff')):
+        continue
+    print(img_name)
+    st = time.time()
+    filepath = os.path.join(img_path,img_name)
 
-dir="ltr">
+    img = cv2.imread(filepath)
 
-<noscript>
-    <div id='noscript'>
-      Jupyter Notebook requires JavaScript.<br>
-      Please enable it to proceed. 
-  </div>
-</noscript>
+    X, ratio = format_img(img, C)
 
-<div id="header" role="navigation" aria-label="Top Menu">
-  <div id="header-container" class="container">
-  <div id="ipython_notebook" class="nav navbar-brand"><a href="/tree?token=33f9cbe9eec6deb44192f388b0ba22bb2de5e4a082deae17" title='dashboard'>
-      <img src='/static/base/images/logo.png?v=641991992878ee24c6f3826e81054a0f' alt='Jupyter Notebook'/>
-  </a></div>
+    if K.image_dim_ordering() == 'tf':
+        X = np.transpose(X, (0, 2, 3, 1))
 
-  
-
-<span id="save_widget" class="pull-left save_widget">
-    <span class="filename"></span>
-    <span class="last_modified"></span>
-</span>
-
-
-  
-
-  
-  
-  
-  
-
-    <span id="login_widget">
-      
-        <button id="logout" class="btn btn-sm navbar-btn">Logout</button>
-      
-    </span>
-
-  
-
-  
-  
-  </div>
-  <div class="header-bar"></div>
-
-  
-
-<div id="menubar-container" class="container">
-  <div id="menubar">
-    <div id="menus" class="navbar navbar-default" role="navigation">
-      <div class="container-fluid">
-          <p  class="navbar-text indicator_area">
-          <span id="current-mode" >current mode</span>
-          </p>
-        <button type="button" class="btn btn-default navbar-toggle" data-toggle="collapse" data-target=".navbar-collapse">
-          <i class="fa fa-bars"></i>
-          <span class="navbar-text">Menu</span>
-        </button>
-        <ul class="nav navbar-nav navbar-right">
-          <li id="notification_area"></li>
-        </ul>
-        <div class="navbar-collapse collapse">
-          <ul class="nav navbar-nav">
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">File</a>
-              <ul id="file-menu" class="dropdown-menu">
-                <li id="new-file"><a href="#">New</a></li>
-                <li id="save-file"><a href="#">Save</a></li>
-                <li id="rename-file"><a href="#">Rename</a></li>
-                <li id="download-file"><a href="#">Download</a></li>
-              </ul>
-            </li>
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Edit</a>
-              <ul id="edit-menu" class="dropdown-menu">
-                <li id="menu-find"><a href="#">Find</a></li>
-                <li id="menu-replace"><a href="#">Find &amp; Replace</a></li>
-                <li class="divider"></li>
-                <li class="dropdown-header">Key Map</li>
-                <li id="menu-keymap-default"><a href="#">Default<i class="fa"></i></a></li>
-                <li id="menu-keymap-sublime"><a href="#">Sublime Text<i class="fa"></i></a></li>
-                <li id="menu-keymap-vim"><a href="#">Vim<i class="fa"></i></a></li>
-                <li id="menu-keymap-emacs"><a href="#">emacs<i class="fa"></i></a></li>
-              </ul>
-            </li>
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">View</a>
-              <ul id="view-menu" class="dropdown-menu">
-              <li id="toggle_header" title="Show/Hide the logo and notebook title (above menu bar)">
-              <a href="#">Toggle Header</a></li>
-              <li id="menu-line-numbers"><a href="#">Toggle Line Numbers</a></li>
-              </ul>
-            </li>
-            <li class="dropdown"><a href="#" class="dropdown-toggle" data-toggle="dropdown">Language</a>
-              <ul id="mode-menu" class="dropdown-menu">
-              </ul>
-            </li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </div>
-</div>
-
-<div class="lower-header-bar"></div>
-
-
-</div>
-
-<div id="site">
-
-
-<div id="texteditor-backdrop">
-<div id="texteditor-container" class="container"></div>
-</div>
-
-
-</div>
-
-
-
-
-
-
+    # get the feature maps and output from the RPN
+    [Y1, Y2, F] = model_rpn.predict(X)
     
 
+    R = roi_helpers.rpn_to_roi(Y1, Y2, C, K.image_dim_ordering(), overlap_thresh=0.7)
+    
 
-<script src="/static/edit/js/main.min.js?v=e554676a4f8e00669f107d9742f94e8d" type="text/javascript" charset="utf-8"></script>
+    # convert from (x1,y1,x2,y2) to (x,y,w,h)
+    R[:, 2] -= R[:, 0]
+    R[:, 3] -= R[:, 1]
 
+    # apply the spatial pyramid pooling to the proposed regions
+    bboxes = {}
+    probs = {}
 
-<script type='text/javascript'>
-  function _remove_token_from_url() {
-    if (window.location.search.length <= 1) {
-      return;
-    }
-    var search_parameters = window.location.search.slice(1).split('&');
-    for (var i = 0; i < search_parameters.length; i++) {
-      if (search_parameters[i].split('=')[0] === 'token') {
-        // remote token from search parameters
-        search_parameters.splice(i, 1);
-        var new_search = '';
-        if (search_parameters.length) {
-          new_search = '?' + search_parameters.join('&');
-        }
-        var new_url = window.location.origin + 
-                      window.location.pathname + 
-                      new_search + 
-                      window.location.hash;
-        window.history.replaceState({}, "", new_url);
-        return;
-      }
-    }
-  }
-  _remove_token_from_url();
-</script>
-</body>
+    for jk in range(R.shape[0]//C.num_rois + 1):
+        ROIs = np.expand_dims(R[C.num_rois*jk:C.num_rois*(jk+1), :], axis=0)
+        if ROIs.shape[1] == 0:
+            break
 
-</html>
+        if jk == R.shape[0]//C.num_rois:
+            #pad R
+            curr_shape = ROIs.shape
+            target_shape = (curr_shape[0],C.num_rois,curr_shape[2])
+            ROIs_padded = np.zeros(target_shape).astype(ROIs.dtype)
+            ROIs_padded[:, :curr_shape[1], :] = ROIs
+            ROIs_padded[0, curr_shape[1]:, :] = ROIs[0, 0, :]
+            ROIs = ROIs_padded
+
+        [P_cls, P_regr] = model_classifier_only.predict([F, ROIs])
+
+        for ii in range(P_cls.shape[1]):
+
+            if np.max(P_cls[0, ii, :]) < bbox_threshold or np.argmax(P_cls[0, ii, :]) == (P_cls.shape[2] - 1):
+                continue
+
+            cls_name = class_mapping[np.argmax(P_cls[0, ii, :])]
+
+            if cls_name not in bboxes:
+                bboxes[cls_name] = []
+                probs[cls_name] = []
+
+            (x, y, w, h) = ROIs[0, ii, :]
+
+            cls_num = np.argmax(P_cls[0, ii, :])
+            try:
+                (tx, ty, tw, th) = P_regr[0, ii, 4*cls_num:4*(cls_num+1)]
+                tx /= C.classifier_regr_std[0]
+                ty /= C.classifier_regr_std[1]
+                tw /= C.classifier_regr_std[2]
+                th /= C.classifier_regr_std[3]
+                x, y, w, h = roi_helpers.apply_regr(x, y, w, h, tx, ty, tw, th)
+            except:
+                pass
+            bboxes[cls_name].append([C.rpn_stride*x, C.rpn_stride*y, C.rpn_stride*(x+w), C.rpn_stride*(y+h)])
+            probs[cls_name].append(np.max(P_cls[0, ii, :]))
+
+    all_dets = []
+
+    # David
+    pred_boxes[img_name[:-4]] = []
+    
+    for key in bboxes:
+        bbox = np.array(bboxes[key])
+        
+
+        new_boxes, new_probs = roi_helpers.non_max_suppression_fast(bbox, np.array(probs[key]), overlap_thresh=0.5)
+        for jk in range(new_boxes.shape[0]):
+            (x1, y1, x2, y2) = new_boxes[jk,:]
+
+            (real_x1, real_y1, real_x2, real_y2) = get_real_coordinates(ratio, x1, y1, x2, y2)
+            
+            # David
+            pred_boxes[img_name[:-4]].append((real_x1, real_y1, real_x2, real_y2, key, new_probs[jk]))
+
+            cv2.rectangle(img,(real_x1, real_y1), (real_x2, real_y2), (int(class_to_color[key][0]), int(class_to_color[key][1]), int(class_to_color[key][2])),2)
+
+            textLabel = '{}: {}'.format(key,int(100*new_probs[jk]))
+            all_dets.append((key,100*new_probs[jk]))
+
+            # David changing the scale of the text
+            (retval,baseLine) = cv2.getTextSize(textLabel,cv2.FONT_HERSHEY_COMPLEX,FONT_SCALE,1)
+            textOrg = (real_x1, real_y1-0)
+
+            cv2.rectangle(img, (textOrg[0] - 5, textOrg[1]+baseLine - 5), (textOrg[0]+retval[0] + 5, textOrg[1]-retval[1] - 5), (0, 0, 0), 2)
+            cv2.rectangle(img, (textOrg[0] - 5,textOrg[1]+baseLine - 5), (textOrg[0]+retval[0] + 5, textOrg[1]-retval[1] - 5), (255, 255, 255), -1)
+            
+            cv2.putText(img, textLabel, textOrg, cv2.FONT_HERSHEY_DUPLEX, FONT_SCALE, (0, 0, 0), 1)
+
+    # David
+    times[img_name[:-4]] = time.time() - st
+    print('Elapsed time = {}'.format(time.time() - st))
+    print(all_dets)
+    #cv2.imshow('img', img)
+    #cv2.waitKey(0)
+    cv2.imwrite('./{}/{}-{}.png'.format(file_path,img_name.split('.')[0],load_weights.split('.')[0][-8:]),img)
+
+# David
+with open('test_pred_boxes_select.pickle', 'wb') as f:
+    pickle.dump(pred_boxes, f, protocol=pickle.HIGHEST_PROTOCOL)
+with open('test_times_select.pickle', 'wb') as f:
+    pickle.dump(times, f, protocol=pickle.HIGHEST_PROTOCOL)
